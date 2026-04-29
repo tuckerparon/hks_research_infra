@@ -40,7 +40,7 @@ for anomaly detection, and serves results via a web API. The system must run loc
 
 ## Deliverables
 
-- **GitHub Repository**: Public repo with complete source code and documentation
+- **GitHub Repository**: Public repo with complete source code, functional CI/CD pipeline and documentation
    - **Cloud Infrastructure**: Complete, deployable Terraform configuration  
    - **CI/CD Pipeline**: GitHub Actions workflow for automated build/test/deploy
    - **Documentation**: Clear README with architecture decisions and deployment instructions
