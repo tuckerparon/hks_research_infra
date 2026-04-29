@@ -41,9 +41,8 @@ for anomaly detection, and serves results via a web API. The system must run loc
 ## Deliverables
 
 - **GitHub Repository**: Public repo with complete source code and documentation
-- **Local Environment**: Working Docker Compose setup
-- **Cloud Infrastructure**: Complete, deployable Terraform configuration  
-- **CI/CD Pipeline**: GitHub Actions workflow for automated build/test/deploy
-- **Documentation**: Clear README with architecture decisions and deployment instructions
-
+   - **Cloud Infrastructure**: Complete, deployable Terraform configuration  
+   - **CI/CD Pipeline**: GitHub Actions workflow for automated build/test/deploy
+   - **Documentation**: Clear README with architecture decisions and deployment instructions
+- **Local Environment**: Working Docker Compose setup + functionality to be demoed at the follow-up call
 
