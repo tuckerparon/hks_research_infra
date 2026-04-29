@@ -72,4 +72,4 @@ python3 generate_data.py -n 25000 --anomaly-rate 0.03
 python3 generate_data.py -n 10000 --anomaly-rate 0.15
 ```
 
-The generated data is designed to work seamlessly with the provided `anomaly_detector.py` script.
+With slight modification, the `anomaly_detector.py` script should work seamlessly with the generated data.
