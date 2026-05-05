@@ -33,7 +33,7 @@ It helps to think of each container as a separate process with a single job. The
 | Container | Job | Runs how long | Talks to |
 |-----------|-----|---------------|----------|
 | `db` | Stores all data. Official Postgres image — no custom code written. | Forever | — |
-| `pipeline` | Generates CSV → inserts sensor readings into `db` → runs anomaly detection → writes results back to `db`. Runs once at startup. | Runs once, then exits | `db` |
+| `pipeline` | Generates CSV → inserts sensor readings into `db` → runs anomaly detection → writes results back to `db`. Repeats on a schedule. | Forever (runs on interval) | `db` |
 | `api` | Listens for HTTP requests. When `/api/anomalies` is called, queries `db` and returns JSON. Never generates data. | Forever | `db` |
 | `nginx` | The front door. Routes all traffic on port 80: `/api/` goes to `api`, `/` serves the static HTML file baked into this container. Never touches the database. | Forever | `api` (proxy), filesystem (static files) |
 | frontend | Not its own container — `index.html` is copied into the `nginx` container at build time. The browser downloads it from nginx, then JS inside it makes fetch() calls to `/api/`. | — | Calls `nginx` at runtime |
@@ -97,6 +97,7 @@ hks/
 ├── frontend/
 │   └── index.html              # Single-file UI
 ├── nginx/
+│   ├── Dockerfile              # Copies nginx.conf + index.html into image
 │   └── nginx.conf
 ├── db/
 │   └── init.sql                # Schema creation
@@ -175,20 +176,21 @@ CREATE INDEX IF NOT EXISTS idx_anomalies_detected_at ON anomalies(detected_at);
 
 ### 2. Pipeline (`pipeline`)
 
-**What it does:**
-1. Runs `2_generate_data.py` to produce a CSV (10,000 observations, 3% anomaly rate)
+**What it does (each cycle):**
+1. Runs `2_generate_data.py` to produce a fresh CSV batch with current timestamps
 2. Reads the CSV and bulk-inserts rows into `sensor_readings`
-3. Reads all `sensor_readings` from DB, runs `3_anomaly_detector.py`
+3. Runs `3_anomaly_detector.py` on the new batch only
 4. Bulk-inserts anomaly results into `anomalies`
-5. Exits cleanly
+5. Sleeps for `PIPELINE_INTERVAL_MINUTES`, then repeats
 
 **Key implementation notes:**
+- Runs continuously via a `while True` loop — container stays up
+- `PIPELINE_INTERVAL_MINUTES` env var controls the cycle frequency (default: 5)
+- First cycle uses a larger batch (10,000 records) for initial data; subsequent cycles use a smaller batch (1,000 records) to simulate ongoing sensor feeds
 - Use `psycopg2` for direct DB writes (no ORM overhead for bulk insert)
-- Use `COPY` or `executemany` for >10k row inserts — do not insert one row at a time
-- Import `AnomalyDetector` from `3_anomaly_detector.py` directly (do not rewrite the algorithm)
-- Wait for DB to be ready before running (use a retry loop or `depends_on` with healthcheck)
-
-**Trigger:** Runs once on `docker compose up`, then exits. Can be re-run with `docker compose run pipeline`.
+- Use `executemany` for bulk inserts — do not insert one row at a time
+- Import `AnomalyDetector` from `3_anomaly_detector.py` directly — do not rewrite the algorithm
+- Wait for DB to be ready before first run (retry loop or `depends_on` with healthcheck)
 
 ---
 
@@ -285,7 +287,7 @@ server {
 
 ```
 db (healthcheck: pg_isready)
-  └── pipeline (depends_on db healthy, runs once and exits)
+  └── pipeline (depends_on db healthy, runs on schedule, stays up)
   └── api (depends_on db healthy, stays up)
         └── nginx (depends_on api)
 ```
@@ -322,7 +324,7 @@ db (healthcheck: pg_isready)
 | S3 Bucket | S3 | Terraform remote state |
 | DynamoDB Table | DynamoDB | Terraform state lock |
 
-**State management:** Remote state in S3 with DynamoDB locking. `backend.tf` configured before `terraform init`.
+**State management:** Remote state in S3 with DynamoDB locking. `backend.tf` configured before `terraform init`. DynamoDB is not used for application data — Terraform uses it only as a lock to prevent two simultaneous `terraform apply` runs from conflicting.
 
 **Variable inputs (via `terraform.tfvars`, gitignored):**
 - `aws_region`, `db_password`, `db_username`, `project_name`
@@ -362,7 +364,7 @@ db (healthcheck: pg_isready)
 
 ---
 
-## Build Order for Tuesday
+## Build Order
 
 Work in this sequence to avoid blocked waiting:
 
@@ -388,7 +390,7 @@ Work in this sequence to avoid blocked waiting:
 Before submitting:
 
 - [ ] `docker compose up` starts all services without errors
-- [ ] Pipeline runs and exits cleanly; data is in DB
+- [ ] Pipeline runs on schedule, populates DB each cycle, and stays running
 - [ ] `GET /health` returns 200
 - [ ] `GET /api/anomalies` returns a non-empty JSON array
 - [ ] `GET /api/anomalies?sensor_id=TEMP_001` filters correctly
@@ -432,7 +434,19 @@ Not applied to: the four provided files (`2_generate_data.py`, `3_anomaly_detect
 
 ## Human Review
 
-- **Reviewer:**
-- **Date reviewed:**
+- **Reviewer:** Tucker Paron
+- **Date reviewed:** 2026-05-05
 - **Changes from AI draft:**
+    - Pipeline container was originally described as "runs once at startup, then exits." Changed to run continuously on a schedule to reflect the Decision 7 change (scalability requirement implies continuous operation).
+    - nginx was missing a Dockerfile in the directory structure. AI omitted it despite nginx needing a custom image to copy in nginx.conf and index.html. Added `nginx/Dockerfile` to the repo structure.
+    - Docker Compose startup order and verification checklist updated to match scheduled pipeline (no longer says "exits cleanly").
+    - Added clarifying note to Terraform section that DynamoDB is only used for Terraform state locking, not application data.
 - **Notes:**
+    - Questioned port 80 for nginx — confirmed correct. Port 80 is the standard HTTP port; browsers default to it when no port is specified in the URL.
+    - Questioned TIMESTAMPTZ — confirmed correct. The Z indicates timezone-aware storage, important for consistent timestamp comparison across sensors.
+    - Questioned SERIAL vs UUID for primary keys — confirmed SERIAL is appropriate. All data comes from one source so globally unique IDs are not needed.
+    - Questioned postgres:15-alpine image choice — confirmed appropriate. Version pinning prevents silent breaking updates; alpine keeps image size small.
+    - Questioned SQL indexes — confirmed indexing only sensor_id and timestamp is correct. Indexes speed up reads but slow down writes; only index columns actually used in query filters.
+    - Questioned why both SQLAlchemy and psycopg2 are needed — confirmed they serve different purposes. psycopg2 is the raw driver used by the pipeline for fast bulk inserts; SQLAlchemy sits on top for the API's query building convenience.
+    - Questioned GET /api/anomalies with no parameters — confirmed returns all anomalies up to the limit (default 100, most recent first).
+    - Questioned nginx.conf — confirmed correct after explanation. upstream block names the FastAPI service; location blocks route by URL prefix.
