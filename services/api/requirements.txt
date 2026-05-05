@@ -1,0 +1,11 @@
+# ── HUMAN REVIEW ──────────────────────────────────────────
+# Reviewer: Tucker Paron
+# Date: 2026-05-05
+# Changes from AI draft: None
+# Notes:
+#   - Was not familiar with the bracket [] syntax in imports - specifies an additional bundle to install
+# ──────────────────────────────────────────────────────────
+
+fastapi
+uvicorn[standard]
+psycopg2-binary
