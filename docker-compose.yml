@@ -1,0 +1,71 @@
+# ── HUMAN REVIEW ──────────────────────────────────────────
+# Reviewer: Tucker Paron
+# Date: 2026-05-05
+# Changes from AI draft: None
+# Notes:
+# - Docker Desktop crashed - had to force quit it in Activity Monitor. 
+# - Can view tables in Docker Desktop/containers/Exec -> psql -U pipeline_user -d sensor_data -> \dt
+# - Questioned whether placeholder .env values (pipeline_user / changeme)
+#   were sufficient for local demo — confirmed yes, adequate for local dev only.
+#   In production these would be strong credentials in AWS Secrets Manager.
+# - Questioned interval, timeout, retries values - these are just standard conventions.
+# ──────────────────────────────────────────────────────────
+
+services:
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  pipeline:
+    build: ./services/pipeline
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      PIPELINE_INTERVAL_MINUTES: ${PIPELINE_INTERVAL_MINUTES}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build: ./services/api
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  nginx:
+    build: ./nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
