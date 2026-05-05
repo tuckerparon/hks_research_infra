@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<!-- ── HUMAN REVIEW ──────────────────────────────────────────
+     Reviewer: Tucker Paron
+     Date: 2026-05-05
+     Changes from AI draft:
+     Notes:
+        - Did not review in full detail. Am less concerned about reviewing 
+          AI frontend code so long as it doesn't transform the data.
+     ─────────────────────────────────────────────────────── -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sensor Anomaly Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f4f6f9;
+      color: #1a1a2e;
+      padding: 2rem;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .filters {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.5rem;
+      background: #fff;
+      padding: 1rem;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+    }
+
+    .filters label {
+      display: flex;
+      flex-direction: column;
+      gap: .25rem;
+      font-size: .85rem;
+      font-weight: 600;
+      color: #555;
+    }
+
+    .filters input {
+      padding: .4rem .6rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: .95rem;
+      width: 200px;
+    }
+
+    button {
+      align-self: flex-end;
+      padding: .45rem 1.2rem;
+      background: #3b6ff0;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      font-size: .95rem;
+      cursor: pointer;
+    }
+
+    button:hover { background: #2a55cc; }
+
+    #status {
+      margin-bottom: 1rem;
+      font-size: .9rem;
+      color: #555;
+      min-height: 1.2em;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+      font-size: .9rem;
+    }
+
+    th {
+      background: #3b6ff0;
+      color: #fff;
+      text-align: left;
+      padding: .65rem 1rem;
+      font-weight: 600;
+    }
+
+    td { padding: .6rem 1rem; border-bottom: 1px solid #eee; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f0f4ff; }
+
+    .badge {
+      display: inline-block;
+      padding: .2rem .55rem;
+      border-radius: 12px;
+      font-size: .8rem;
+      font-weight: 600;
+      background: #fde8e8;
+      color: #c0392b;
+    }
+
+    #empty {
+      display: none;
+      text-align: center;
+      padding: 2rem;
+      color: #888;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Sensor Anomaly Dashboard</h1>
+
+  <div class="filters">
+    <label>
+      Sensor ID
+      <input type="text" id="sensorId" placeholder="e.g. sensor_001" />
+    </label>
+    <label>
+      Start (UTC)
+      <input type="datetime-local" id="start" />
+    </label>
+    <label>
+      End (UTC)
+      <input type="datetime-local" id="end" />
+    </label>
+    <label>
+      Limit
+      <input type="number" id="limit" value="100" min="1" max="1000" style="width:90px" />
+    </label>
+    <button onclick="fetchAnomalies()">Search</button>
+  </div>
+
+  <div id="status"></div>
+
+  <div id="empty">No anomalies found for the selected filters.</div>
+
+  <table id="table" style="display:none">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Sensor</th>
+        <th>Type</th>
+        <th>Confidence</th>
+        <th>Detected At (UTC)</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+
+  <script>
+    async function fetchAnomalies() {
+      const params = new URLSearchParams();
+
+      const sensorId = document.getElementById('sensorId').value.trim();
+      const start    = document.getElementById('start').value;
+      const end      = document.getElementById('end').value;
+      const limit    = document.getElementById('limit').value;
+
+      if (sensorId) params.append('sensor_id', sensorId);
+      if (start)    params.append('start', new Date(start).toISOString());
+      if (end)      params.append('end',   new Date(end).toISOString());
+      if (limit)    params.append('limit', limit);
+
+      const status = document.getElementById('status');
+      status.textContent = 'Loading…';
+
+      try {
+        const res = await fetch(`/api/anomalies?${params}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        status.textContent = `${data.length} anomal${data.length === 1 ? 'y' : 'ies'} returned`;
+        render(data);
+      } catch (err) {
+        status.textContent = `Error: ${err.message}`;
+      }
+    }
+
+    function render(rows) {
+      const table = document.getElementById('table');
+      const empty = document.getElementById('empty');
+      const tbody = document.getElementById('tbody');
+
+      tbody.innerHTML = '';
+
+      if (rows.length === 0) {
+        table.style.display = 'none';
+        empty.style.display = 'block';
+        return;
+      }
+
+      empty.style.display = 'none';
+      table.style.display = 'table';
+
+      rows.forEach(r => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${r.id}</td>
+          <td>${r.sensor_id}</td>
+          <td><span class="badge">${r.anomaly_type}</span></td>
+          <td>${(r.confidence_score * 100).toFixed(1)}%</td>
+          <td>${new Date(r.detected_at).toUTCString()}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // Load on page open with defaults
+    fetchAnomalies();
+  </script>
+
+</body>
+</html>
