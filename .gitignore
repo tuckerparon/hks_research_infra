@@ -1,0 +1,24 @@
+# Environment
+.env
+
+# Terraform
+terraform/.terraform/
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/terraform.tfstate.d/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+
+# Generated data
+*.csv
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+
+# macOS
+.DS_Store
