@@ -1,0 +1,10 @@
+# ── HUMAN REVIEW ──────────────────────────────────────────
+# Reviewer: Tucker Paron
+# Date: 2026-05-05
+# Changes from AI draft: None
+# Notes: Very straightforward. "psycopg2-binary" allows Python to connect to code base.
+# ──────────────────────────────────────────────────────────
+
+pandas
+numpy
+psycopg2-binary
