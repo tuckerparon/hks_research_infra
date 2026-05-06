@@ -43,10 +43,12 @@ All credentials are environment-variable driven. No secrets are committed to the
 
 Only two tools are required to run the project locally. Everything else (Python, PostgreSQL, nginx) runs inside Docker.
 
-| Tool | Mac | Windows |
-|---|---|---|
-| Git | Pre-installed, or `brew install git` | [git-scm.com](https://git-scm.com/download/win) |
-| Docker Desktop | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) | Same link — requires WSL2 (Docker installs it automatically) |
+
+| Tool           | Mac                                                                                   | Windows                                                                               |
+| -------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Git            | Pre-installed, or `brew install git`                                                  | [git-scm.com](https://git-scm.com/download/win)                                       |
+| Docker Desktop | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) |
+
 
 ### Mac
 
@@ -54,6 +56,10 @@ Only two tools are required to run the project locally. Everything else (Python,
 git clone https://github.com/tuckerparon/hks_research_infra.git
 cd hks_research_infra
 cp .env.example .env
+
+# If you have run this project before, wipe the old database volume first:
+# docker compose down -v
+
 docker compose up --build
 ```
 
@@ -66,6 +72,10 @@ git clone https://github.com/tuckerparon/hks_research_infra.git
 cd hks_research_infra
 copy .env.example .env        # Command Prompt
 # cp .env.example .env        # PowerShell or Git Bash
+
+# If you have run this project before, wipe the old database volume first:
+# docker compose down -v
+
 docker compose up --build
 ```
 
@@ -160,20 +170,23 @@ AWS:    ALB --> ECS Fargate (api) --> RDS Postgres <-- ECS Fargate (pipeline)
         Images stored in ECR. State managed by Terraform in S3.
 ```
 
-| Component | Local | AWS Equivalent |
-|---|---|---|
-| Reverse proxy / frontend | nginx container | ALB + S3 static hosting |
-| API | FastAPI container | ECS Fargate service |
-| Pipeline | Python container (scheduled loop) | ECS Fargate service |
-| Database | PostgreSQL container | RDS PostgreSQL 15 |
-| Image registry | Local Docker | ECR |
-| State storage | — | S3 + DynamoDB |
+
+| Component                | Local                             | AWS Equivalent          |
+| ------------------------ | --------------------------------- | ----------------------- |
+| Reverse proxy / frontend | nginx container                   | ALB + S3 static hosting |
+| API                      | FastAPI container                 | ECS Fargate service     |
+| Pipeline                 | Python container (scheduled loop) | ECS Fargate service     |
+| Database                 | PostgreSQL container              | RDS PostgreSQL 15       |
+| Image registry           | Local Docker                      | ECR                     |
+| State storage            | —                                 | S3 + DynamoDB           |
+
 
 ### API
 
 The REST API is built with FastAPI and served on port 8000 inside Docker, proxied through nginx at `http://localhost/api/`.
 
 **Key files:**
+
 - `services/api/main.py` — endpoint definitions
 - `services/api/models.py` — Pydantic response models
 - `services/api/utils.py` — z-score to confidence percentage conversion
@@ -227,6 +240,7 @@ docker compose logs api -f          # watch live API requests
 PostgreSQL 15 running in Docker, initialized from `db/init.sql` on first start. The schema has two tables: `sensor_readings` and `anomalies`, with indexes on the columns most commonly used for filtering.
 
 **Key files:**
+
 - `db/init.sql` — schema definition, tables, and indexes
 
 **Accessing directly:**
@@ -249,6 +263,7 @@ Docker Desktop alternative: Containers → `hks-db-1` → **Exec** tab → run t
 A Python process that runs on a configurable interval. On first start it seeds the database with 10,000 readings; subsequent cycles add 1,000. It uses the provided `DataGenerator` to create synthetic sensor readings and `AnomalyDetector` to flag statistical outliers.
 
 **Key files:**
+
 - `services/pipeline/run_pipeline.py` — orchestration loop
 - `docs/provided/2_generate_data.py` — provided data generator (copied into container at build time)
 - `docs/provided/3_anomaly_detector.py` — provided z-score anomaly detector (copied into container at build time)
@@ -266,6 +281,7 @@ Four containers are defined in `docker-compose.yml`: `db`, `pipeline`, `api`, an
 nginx serves the static frontend at `/` and proxies all `/api/` traffic to the FastAPI container. The frontend HTML, CSS, and JS are in `frontend/index.html`.
 
 **Key files:**
+
 - `docker-compose.yml` — container definitions, networking, volumes, healthchecks
 - `nginx/nginx.conf` — routing rules
 - `nginx/Dockerfile` — copies frontend files into the nginx image
@@ -286,29 +302,33 @@ docker compose down -v              # stop and wipe database
 
 ## Requirements Verification
 
-| Requirement | How it's met | How to verify |
-|---|---|---|
-| Ingest CSV sensor data into PostgreSQL | Pipeline generates batches, bulk-inserts via `execute_values` into `sensor_readings` | `docker compose logs pipeline -f` shows cycle output |
-| Anomaly detection with confidence scores | `3_anomaly_detector.py` (provided) runs z-score detection; scores converted to confidence % via `utils.py` | Dashboard confidence column; `SELECT * FROM anomalies LIMIT 5;` in psql |
-| Store results with anomaly flags | `anomalies` table stores `anomaly_type`, `confidence_score`, `detected_at`, FK to `sensor_readings` | `SELECT COUNT(*) FROM anomalies;` in psql |
-| REST API | FastAPI serves `/api/anomalies`, `/api/sensors`, `/api/anomaly-types`, `/health` | `curl http://localhost/api/anomalies?limit=5` |
-| Simple web dashboard | Vanilla HTML/JS at `http://localhost` with filters for sensor, type, confidence, date range | Navigate to `http://localhost` |
-| Docker Compose orchestration | `docker-compose.yml` defines db, pipeline, api, nginx with healthchecks and `depends_on` | `docker compose ps` shows all 4 services healthy |
-| >10k records handled efficiently | Bulk insert via `execute_values`; indexed on `sensor_id`, `timestamp`, `detected_at`; API paginated | `docker compose logs pipeline -f` — 10k seed runs in seconds |
-| Database persists between restarts | Named volume `postgres_data` survives `docker compose restart` and `docker compose down` | Row count before and after `docker compose restart` stays the same |
-| Basic monitoring / health checks | `/health` endpoint; Docker healthchecks on `db` and `api`; ALB health check in Terraform | `curl http://localhost/health` returns `{"status":"ok"}` |
-| Terraform for AWS | `terraform/main.tf` provisions VPC, RDS, ECS, ALB, ECR, S3 | `terraform validate` passes in CI on every push (see Actions tab) |
-| CI/CD pipeline | GitHub Actions: tests + `terraform validate` on every push; Docker build or ECR deploy based on AWS credentials | See `.github/workflows/deploy.yml`; Actions tab shows test job green |
+
+| Requirement                              | How it's met                                                                                                    | How to verify                                                           |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Ingest CSV sensor data into PostgreSQL   | Pipeline generates batches, bulk-inserts via `execute_values` into `sensor_readings`                            | `docker compose logs pipeline -f` shows cycle output                    |
+| Anomaly detection with confidence scores | `3_anomaly_detector.py` (provided) runs z-score detection; scores converted to confidence % via `utils.py`      | Dashboard confidence column; `SELECT * FROM anomalies LIMIT 5;` in psql |
+| Store results with anomaly flags         | `anomalies` table stores `anomaly_type`, `confidence_score`, `detected_at`, FK to `sensor_readings`             | `SELECT COUNT(*) FROM anomalies;` in psql                               |
+| REST API                                 | FastAPI serves `/api/anomalies`, `/api/sensors`, `/api/anomaly-types`, `/health`                                | `curl http://localhost/api/anomalies?limit=5`                           |
+| Simple web dashboard                     | Vanilla HTML/JS at `http://localhost` with filters for sensor, type, confidence, date range                     | Navigate to `http://localhost`                                          |
+| Docker Compose orchestration             | `docker-compose.yml` defines db, pipeline, api, nginx with healthchecks and `depends_on`                        | `docker compose ps` shows all 4 services healthy                        |
+| >10k records handled efficiently         | Bulk insert via `execute_values`; indexed on `sensor_id`, `timestamp`, `detected_at`; API paginated             | `docker compose logs pipeline -f` — 10k seed runs in seconds            |
+| Database persists between restarts       | Named volume `postgres_data` survives `docker compose restart` and `docker compose down`                        | Row count before and after `docker compose restart` stays the same      |
+| Basic monitoring / health checks         | `/health` endpoint; Docker healthchecks on `db` and `api`; ALB health check in Terraform                        | `curl http://localhost/health` returns `{"status":"ok"}`                |
+| Terraform for AWS                        | `terraform/main.tf` provisions VPC, RDS, ECS, ALB, ECR, S3                                                      | `terraform validate` passes in CI on every push (see Actions tab)       |
+| CI/CD pipeline                           | GitHub Actions: tests + `terraform validate` on every push; Docker build or ECR deploy based on AWS credentials | See `.github/workflows/deploy.yml`; Actions tab shows test job green    |
+
 
 ---
 
 ## Documentation
 
-| Document | Description |
-|---|---|
-| [docs/DECISIONS.md](docs/DECISIONS.md) | Architectural and process decisions with reasoning and tradeoffs |
-| [docs/INFRASTRUCTURE_PLAN.md](docs/INFRASTRUCTURE_PLAN.md) | Component specs, schema, and operational notes |
-| [docs/provided/](docs/provided/) | Original exercise files provided by HKS |
+
+| Document                                                   | Description                                                      |
+| ---------------------------------------------------------- | ---------------------------------------------------------------- |
+| [docs/DECISIONS.md](docs/DECISIONS.md)                     | Architectural and process decisions with reasoning and tradeoffs |
+| [docs/INFRASTRUCTURE_PLAN.md](docs/INFRASTRUCTURE_PLAN.md) | Component specs, schema, and operational notes                   |
+| [docs/provided/](docs/provided/)                           | Original exercise files provided by HKS                          |
+
 
 ---
 
@@ -354,3 +374,4 @@ Changes that would improve the project given more development time:
 - **Frontend** — the dashboard is intentionally minimal. A research tool in production would likely need time-series charts to visualize anomaly trends, sensor comparison views, and CSV export for researchers who want to work with the data offline.
 - **Terraform modules** — all infrastructure is defined in a single flat file. That is easy to read for a small project but hard to maintain as the system grows. A production codebase would split it into reusable modules: one for networking (VPC, subnets), one for compute (ECS, ALB), one for data (RDS, S3).
 - **CI/CD staging gate** — the pipeline currently deploys directly to production on every push to `main`. A real deployment pipeline would push to a staging environment first, run smoke tests, and require a manual approval step before promoting to production.
+
