@@ -16,7 +16,7 @@ from fastapi import FastAPI, Query
 
 from database import get_conn
 from models import Anomaly
-from utils import z_to_confidence
+from utils import z_to_confidence, confidence_pct_to_z
 
 app = FastAPI(title="Sensor Data API", version="1.0.0")
 
@@ -36,18 +36,30 @@ def list_sensors():
             return [row[0] for row in cur.fetchall()]
 
 
+@app.get("/api/anomaly-types", response_model=list[str])
+def list_anomaly_types():
+    """Return distinct anomaly types sorted alphabetically — used to populate the dashboard dropdown."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT anomaly_type FROM anomalies ORDER BY anomaly_type")
+            return [row[0] for row in cur.fetchall()]
+
+
 @app.get("/api/anomalies", response_model=list[Anomaly])
 def list_anomalies(
     sensor_id: Optional[str] = None,
+    anomaly_type: Optional[str] = None,
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
+    min_confidence_pct: float = Query(0.0, ge=0.0, lt=100.0),
     limit: int = Query(100, le=1000),
     offset: int = 0,
 ):
-    """Return anomalies newest first, optionally filtered by sensor_id and/or date range.
+    """Return anomalies newest first, optionally filtered by sensor_id, anomaly_type, date range, and min confidence.
 
     Joins anomalies to sensor_readings to expose sensor_id as a filter and response field.
     All filters are optional — omitting them returns the full paginated set.
+    min_confidence_pct is converted to a z-score threshold and applied server-side.
     """
     filters = []
     params = []
@@ -55,12 +67,18 @@ def list_anomalies(
     if sensor_id:
         filters.append("sr.sensor_id = %s")
         params.append(sensor_id)
+    if anomaly_type:
+        filters.append("a.anomaly_type = %s")
+        params.append(anomaly_type)
     if start:
         filters.append("a.detected_at >= %s")
         params.append(start)
     if end:
         filters.append("a.detected_at <= %s")
         params.append(end)
+    if min_confidence_pct > 0:
+        filters.append("a.confidence_score >= %s")
+        params.append(confidence_pct_to_z(min_confidence_pct))
 
     where = ("WHERE " + " AND ".join(filters)) if filters else ""
     params += [limit, offset]

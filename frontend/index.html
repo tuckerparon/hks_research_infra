@@ -137,10 +137,20 @@
 
   <div class="filters">
     <label>
-      Sensor ID
+      Sensor
       <select id="sensorId">
         <option value="">All sensors</option>
       </select>
+    </label>
+    <label>
+      Anomaly Type
+      <select id="anomalyType">
+        <option value="">All types</option>
+      </select>
+    </label>
+    <label>
+      Min Confidence %
+      <input type="number" id="minConf" value="0" min="0" max="99.99" step="0.01" style="width:110px" />
     </label>
     <label>
       Start (UTC)
@@ -151,17 +161,13 @@
       <input type="datetime-local" id="end" />
     </label>
     <label>
-      Min Confidence %
-      <input type="number" id="minConf" value="0" min="0" max="100" step="0.01" style="width:110px" />
-    </label>
-    <label>
       Limit
-      <input type="number" id="limit" value="100" min="1" max="1000" style="width:90px" />
+      <input type="number" id="limit" value="100" min="1" max="1000" style="width:80px" />
     </label>
-    <button onclick="fetchAnomalies()">Search</button>
-    <div style="display:flex; align-items:center; gap:.75rem; margin-left:.5rem; padding-left:1rem; border-left:1px solid #ddd;">
+    <div style="display:flex; align-items:flex-end; gap:.75rem;">
+      <button onclick="fetchAnomalies()">Search</button>
       <button onclick="fetchAnomalies()" style="background:#6b7280;">Refresh</button>
-      <span style="font-size:.82rem; color:#888; white-space:nowrap;">Pipeline updates every 1 min</span>
+      <span style="font-size:.82rem; color:#888; white-space:nowrap; padding-bottom:.5rem;">Pipeline updates every 1 min</span>
     </div>
   </div>
 
@@ -183,16 +189,16 @@
   </table>
 
   <script>
-    async function populateSensors() {
+    async function populateDropdown(url, selectId, allLabel) {
       try {
-        const res = await fetch('/api/sensors');
+        const res = await fetch(url);
         if (!res.ok) return;
-        const sensors = await res.json();
-        const select = document.getElementById('sensorId');
-        sensors.forEach(s => {
+        const items = await res.json();
+        const select = document.getElementById(selectId);
+        items.forEach(item => {
           const opt = document.createElement('option');
-          opt.value = s;
-          opt.textContent = s;
+          opt.value = item;
+          opt.textContent = item;
           select.appendChild(opt);
         });
       } catch (_) {}
@@ -201,16 +207,19 @@
     async function fetchAnomalies() {
       const params = new URLSearchParams();
 
-      const sensorId = document.getElementById('sensorId').value;
-      const start    = document.getElementById('start').value;
-      const end      = document.getElementById('end').value;
-      const minConf  = parseFloat(document.getElementById('minConf').value) || 0;
-      const limit    = document.getElementById('limit').value;
+      const sensorId    = document.getElementById('sensorId').value;
+      const anomalyType = document.getElementById('anomalyType').value;
+      const start       = document.getElementById('start').value;
+      const end         = document.getElementById('end').value;
+      const minConf     = parseFloat(document.getElementById('minConf').value) || 0;
+      const limit       = document.getElementById('limit').value;
 
-      if (sensorId) params.append('sensor_id', sensorId);
-      if (start)    params.append('start', new Date(start).toISOString());
-      if (end)      params.append('end',   new Date(end).toISOString());
-      if (limit)    params.append('limit', limit);
+      if (sensorId)    params.append('sensor_id',         sensorId);
+      if (anomalyType) params.append('anomaly_type',      anomalyType);
+      if (start)       params.append('start',             new Date(start).toISOString());
+      if (end)         params.append('end',               new Date(end).toISOString());
+      if (minConf > 0) params.append('min_confidence_pct', minConf);
+      if (limit)       params.append('limit',             limit);
 
       const status = document.getElementById('status');
       status.textContent = 'Loading…';
@@ -220,9 +229,8 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 
-        const filtered = minConf > 0 ? data.filter(r => r.confidence_pct >= minConf) : data;
-        status.textContent = `${filtered.length} anomal${filtered.length === 1 ? 'y' : 'ies'} returned`;
-        render(filtered);
+        status.textContent = `${data.length} anomal${data.length === 1 ? 'y' : 'ies'} returned`;
+        render(data);
       } catch (err) {
         status.textContent = `Error: ${err.message}`;
       }
@@ -257,7 +265,8 @@
       });
     }
 
-    populateSensors();
+    populateDropdown('/api/sensors',       'sensorId',    'All sensors');
+    populateDropdown('/api/anomaly-types', 'anomalyType', 'All types');
     fetchAnomalies();
   </script>
 

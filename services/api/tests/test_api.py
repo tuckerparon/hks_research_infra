@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from fastapi.testclient import TestClient
 from main import app
-from utils import z_to_confidence
+from utils import z_to_confidence, confidence_pct_to_z
 
 client = TestClient(app)
 
@@ -75,6 +75,20 @@ def test_z_to_confidence_returns_float():
     assert 0.0 <= result <= 100.0
 
 
+# ── confidence_pct_to_z unit tests ───────────────────────
+
+def test_confidence_pct_to_z_known_values():
+    assert abs(confidence_pct_to_z(95.0) - 1.96) < 0.01
+    assert abs(confidence_pct_to_z(99.0) - 2.576) < 0.01
+
+def test_confidence_pct_to_z_zero():
+    assert confidence_pct_to_z(0.0) == 0.0
+
+def test_confidence_pct_to_z_roundtrip():
+    for pct in [50.0, 95.0, 99.0, 99.9]:
+        assert abs(z_to_confidence(confidence_pct_to_z(pct)) - pct) < 0.01
+
+
 # ── API endpoint tests ────────────────────────────────────
 
 def test_health():
@@ -120,3 +134,24 @@ def test_list_anomalies_empty():
         response = client.get('/api/anomalies')
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_list_anomalies_filter_by_anomaly_type():
+    with mock_db(fetchall=[ANOMALY_ROW]):
+        response = client.get('/api/anomalies?anomaly_type=temperature_spike')
+    assert response.status_code == 200
+
+
+def test_list_anomalies_filter_by_min_confidence_pct():
+    with mock_db(fetchall=[ANOMALY_ROW]):
+        response = client.get('/api/anomalies?min_confidence_pct=95')
+    assert response.status_code == 200
+
+
+def test_list_anomaly_types_returns_list():
+    with mock_db(fetchall=[('pressure_anomaly',), ('temperature_spike',)]):
+        response = client.get('/api/anomaly-types')
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+    assert 'temperature_spike' in data

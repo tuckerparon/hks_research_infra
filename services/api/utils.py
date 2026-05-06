@@ -25,3 +25,31 @@ def z_to_confidence(z: float) -> float:
         z=4.0  → ~99.994%
     """
     return round((1 - 2 * (1 - _norm_cdf(abs(z)))) * 100, 2)
+
+
+def _erfinv(x: float) -> float:
+    """Inverse error function via Winitzki approximation + Newton-Raphson refinement."""
+    if abs(x) >= 1:
+        return math.copysign(float('inf'), x)
+    if x == 0:
+        return 0.0
+    a = 0.147
+    ln1mx2 = math.log(1 - x * x)
+    t = 2 / (math.pi * a) + ln1mx2 / 2
+    approx = math.copysign(math.sqrt(math.sqrt(t * t - ln1mx2 / a) - t), x)
+    for _ in range(2):
+        approx -= (math.erf(approx) - x) * math.exp(approx * approx) * math.sqrt(math.pi) / 2
+    return approx
+
+
+def confidence_pct_to_z(pct: float) -> float:
+    """Convert a confidence percentage (0–100) to its z-score threshold.
+
+    Inverse of z_to_confidence. Used to convert a user-supplied min confidence %
+    into a z-score for SQL filtering against the stored confidence_score column.
+    """
+    if pct <= 0:
+        return 0.0
+    if pct >= 100:
+        return float('inf')
+    return math.sqrt(2) * _erfinv(pct / 100)
