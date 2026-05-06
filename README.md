@@ -60,19 +60,38 @@ Docker Desktop: Containers → `hks-db-1` → **Exec** tab → run the `psql` co
 
 **API:**
 
-```
-GET /api/anomalies
-  ?sensor_id=TEMP_002          # optional filter
-  ?anomaly_type=pressure_anomaly
-  ?min_confidence_pct=95       # server-side confidence threshold (0–100)
-  ?start=2026-05-06T00:00:00Z  # optional date range
-  ?end=2026-05-06T23:59:59Z
-  ?limit=100                   # max 1000
-  ?offset=0
+```bash
+# All anomalies (paginated)
+curl http://localhost/api/anomalies?limit=5
 
-GET /api/sensors               # distinct sensor IDs for dropdown
-GET /api/anomaly-types         # distinct anomaly types for dropdown
-GET /health                    # liveness probe
+# Filter by sensor, type, and minimum confidence
+curl "http://localhost/api/anomalies?sensor_id=TEMP_002&anomaly_type=temperature_anomaly&min_confidence_pct=95"
+
+# Filter by date range
+curl "http://localhost/api/anomalies?start=2026-05-06T00:00:00Z&end=2026-05-06T23:59:59Z"
+
+# Populate dashboard dropdowns
+curl http://localhost/api/sensors
+curl http://localhost/api/anomaly-types
+
+# Liveness probe
+curl http://localhost/health
+```
+
+Example response from `/api/anomalies`:
+
+```json
+[
+  {
+    "id": 42,
+    "sensor_data_id": 381,
+    "sensor_id": "TEMP_002",
+    "anomaly_type": "temperature_anomaly",
+    "confidence_score": 2.85,
+    "confidence_pct": 99.56,
+    "detected_at": "2026-05-06T15:24:01.000Z"
+  }
+]
 ```
 
 ---
