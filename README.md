@@ -114,7 +114,7 @@ docker compose exec db psql -U pipeline_user -d sensor_data \
 
 ### Troubleshooting
 
-**Port 80 already in use** — another process (Apache, IIS on Windows) may be using port 80. On Mac: `sudo lsof -i :80`. On Windows: check IIS in Services. Stop the conflicting process or change the nginx port in `docker-compose.yml`.
+**Port 80 or 5432 already in use** — another Docker project (or a local PostgreSQL install) may be holding port 5432, or another process holding port 80. Find the culprit with `docker ps | grep 5432` or `sudo lsof -i :5432`. If it's another Compose project, navigate to that directory and run `docker compose down` before starting this one.
 
 **Docker not running** — open Docker Desktop and wait for the whale icon to stop animating before running `docker compose up`.
 
