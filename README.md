@@ -33,8 +33,30 @@ The pipeline seeds 10,000 readings on first start, then adds 1,000 more every mi
 ```bash
 docker compose logs pipeline -f       # watch pipeline ingestion in real time
 docker compose logs api -f            # watch API requests
-docker compose down -v                # stop and wipe the database volume
+docker compose restart                # restart containers, existing data survives
+docker compose down                   # stop containers, data volume survives
+docker compose down -v                # stop containers AND wipe the database volume
 ```
+
+**Data and teardown:**
+
+The pipeline stops automatically after `MAX_RUNTIME_MINUTES` (default: 30 in `.env.example`) to prevent unbounded growth during local demos. At ~1,000 readings/minute the database grows roughly 3–4 MB over a 30-minute run.
+
+`docker compose restart` and `docker compose down` (without `-v`) both preserve the `postgres_data` volume — the database survives and the pipeline skips its initial seed on restart. Only `docker compose down -v` deletes the volume and resets to a clean state.
+
+If teardown is never run, Docker volumes accumulate on your host machine. Check with `docker volume ls` and clean up with `docker volume prune` if needed.
+
+**Accessing the database directly:**
+
+```bash
+# Terminal
+docker compose exec db psql -U pipeline_user -d sensor_data
+\dt                                    # list tables
+SELECT COUNT(*) FROM sensor_readings;  # verify row count
+SELECT COUNT(*) FROM anomalies;
+```
+
+Docker Desktop: Containers → `hks-db-1` → **Exec** tab → run the `psql` command above.
 
 **API:**
 
@@ -52,6 +74,21 @@ GET /api/sensors               # distinct sensor IDs for dropdown
 GET /api/anomaly-types         # distinct anomaly types for dropdown
 GET /health                    # liveness probe
 ```
+
+---
+
+## Deploying to AWS
+
+The Terraform configuration in `terraform/` provisions the full AWS stack (VPC, RDS PostgreSQL 15, ECS Fargate for the API and pipeline, ALB, ECR, and S3 for static frontend hosting). `terraform validate` runs automatically in CI on every push to confirm the configuration is syntactically valid.
+
+To activate a live deployment:
+
+1. Create an S3 bucket for Terraform state and update `terraform/backend.tf` with the bucket name
+2. Set up an OIDC IAM role that trusts GitHub Actions ([GitHub OIDC docs](https://docs.github.com/en/actions/security-for-github-actions/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services))
+3. Add `AWS_ROLE_ARN` to GitHub repository secrets
+4. Run `terraform apply` from the `terraform/` directory to provision infrastructure
+
+Once `AWS_ROLE_ARN` is set, the CI/CD pipeline automatically builds and pushes Docker images to ECR and triggers an ECS rolling deployment on every push to `main`.
 
 ---
 
@@ -102,6 +139,24 @@ AWS:    ALB → ECS Fargate (api) → RDS Postgres ← ECS Fargate (pipeline)
 | Image registry           | Local Docker                      | ECR                                                 |
 | State storage            | —                                 | S3 + DynamoDB                                       |
 
+
+---
+
+## Requirements & Constraints Verification
+
+| Requirement | How it's met | How to verify |
+|---|---|---|
+| Ingest CSV sensor data into PostgreSQL | Pipeline generates batches, bulk-inserts via `execute_values` into `sensor_readings` | `docker compose logs pipeline -f` shows cycle output |
+| Anomaly detection with confidence scores | `3_anomaly_detector.py` (provided) runs z-score detection; z-scores converted to confidence % via `utils.py` | Dashboard confidence column; `SELECT * FROM anomalies LIMIT 5;` in psql |
+| Store results with anomaly flags | `anomalies` table stores `anomaly_type`, `confidence_score`, `detected_at`, FK to `sensor_readings` | `SELECT COUNT(*) FROM anomalies;` in psql |
+| REST API | FastAPI serves `/api/anomalies`, `/api/sensors`, `/api/anomaly-types`, `/health` | `curl http://localhost/api/anomalies?limit=5` |
+| Simple web dashboard | Vanilla HTML/JS at `http://localhost` with filters for sensor, type, confidence, date range | Navigate to `http://localhost` |
+| Docker Compose orchestration | `docker-compose.yml` defines db, pipeline, api, nginx with healthchecks and `depends_on` | `docker compose ps` shows all 4 services healthy |
+| >10k records handled efficiently | Bulk insert via `execute_values`; indexed on `sensor_id`, `timestamp`, `detected_at`; API paginated | `docker compose logs pipeline -f` — 10k seed runs in seconds |
+| Database persists between restarts | Named volume `postgres_data` survives `docker compose restart` and `docker compose down` | Row count before and after `docker compose restart` stays the same |
+| Basic monitoring / health checks | `/health` endpoint; Docker healthchecks on `db` and `api`; ALB health check in Terraform | `curl http://localhost/health` returns `{"status":"ok"}` |
+| Terraform for AWS | `terraform/main.tf` provisions VPC, RDS, ECS, ALB, ECR, S3 | `terraform validate` passes in CI on every push (see Actions tab) |
+| CI/CD pipeline | GitHub Actions: tests + `terraform validate` on every push; Docker build or ECR deploy based on AWS credentials | See `.github/workflows/deploy.yml`; Actions tab shows test job green |
 
 ---
 
