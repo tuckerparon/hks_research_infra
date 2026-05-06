@@ -63,7 +63,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Navigate to `http://localhost` — the dashboard loads automatically. The pipeline seeds 10,000 readings on first start, then adds 1,000 more every minute.
+Navigate to `http://localhost` — the dashboard loads automatically. The pipeline seeds 10,000 readings on first start, then adds 1,000 more every minute for 30 minutes, then stops automatically. To change the duration, update `MAX_RUNTIME_MINUTES` in `.env`.
 
 ### Windows
 
