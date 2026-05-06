@@ -4,6 +4,31 @@ A research data pipeline that ingests sensor readings, detects anomalies, and se
 
 ---
 
+## Table of Contents
+
+- [Overview](#overview)
+- [How To Run](#how-to-run)
+  - [Prerequisites](#prerequisites)
+  - [Mac](#mac)
+  - [Windows](#windows)
+  - [Deploying to AWS](#deploying-to-aws)
+  - [Checking the Stack](#checking-the-stack)
+  - [Troubleshooting](#troubleshooting)
+  - [Teardown](#teardown)
+  - [Video Walkthrough](#video-walkthrough)
+- [Architecture](#architecture)
+  - [API](#api)
+  - [Database](#database)
+  - [Pipeline](#pipeline)
+  - [Docker and nginx](#docker-and-nginx)
+- [Requirements Verification](#requirements-verification)
+- [Documentation](#documentation)
+- [Future Changes](#future-changes)
+  - [Scalability](#scalability)
+  - [Improvements](#improvements)
+
+---
+
 ## Overview
 
 The system continuously generates batches of sensor readings (temperature, humidity, pressure), stores them in PostgreSQL, runs statistical anomaly detection, and exposes the results through a FastAPI endpoint consumed by a vanilla HTML/JS dashboard.
@@ -12,91 +37,41 @@ All credentials are environment-variable driven. No secrets are committed to the
 
 ---
 
-## How to Run Locally
+## How To Run
 
-**Prerequisites:** Docker Desktop
+### Prerequisites
+
+Only two tools are required to run the project locally. Everything else (Python, PostgreSQL, nginx) runs inside Docker.
+
+| Tool | Mac | Windows |
+|---|---|---|
+| Git | Pre-installed, or `brew install git` | [git-scm.com](https://git-scm.com/download/win) |
+| Docker Desktop | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) | Same link — requires WSL2 (Docker installs it automatically) |
+
+### Mac
 
 ```bash
 git clone https://github.com/tuckerparon/hks_research_infra.git
 cd hks_research_infra
-
-cp .env.example .env          # uses safe placeholder values for local dev
+cp .env.example .env
 docker compose up --build
 ```
 
-Navigate to `http://localhost` — the dashboard loads automatically with the most recent anomalies.
+Navigate to `http://localhost` — the dashboard loads automatically. The pipeline seeds 10,000 readings on first start, then adds 1,000 more every minute.
 
-The pipeline seeds 10,000 readings on first start, then adds 1,000 more every minute.
+### Windows
 
-**Useful commands:**
-
-```bash
-docker compose logs pipeline -f       # watch pipeline ingestion in real time
-docker compose logs api -f            # watch API requests
-docker compose restart                # restart containers, existing data survives
-docker compose down                   # stop containers, data volume survives
-docker compose down -v                # stop containers AND wipe the database volume
+```powershell
+git clone https://github.com/tuckerparon/hks_research_infra.git
+cd hks_research_infra
+copy .env.example .env        # Command Prompt
+# cp .env.example .env        # PowerShell or Git Bash
+docker compose up --build
 ```
 
-**Data and teardown:**
+Navigate to `http://localhost`.
 
-The pipeline stops automatically after `MAX_RUNTIME_MINUTES` (default: 30 in `.env.example`) to prevent unbounded growth during local demos. At ~1,000 readings/minute the database grows roughly 3–4 MB over a 30-minute run.
-
-`docker compose restart` and `docker compose down` (without `-v`) both preserve the `postgres_data` volume — the database survives and the pipeline skips its initial seed on restart. Only `docker compose down -v` deletes the volume and resets to a clean state.
-
-If teardown is never run, Docker volumes accumulate on your host machine. Check with `docker volume ls` and clean up with `docker volume prune` if needed.
-
-**Accessing the database directly:**
-
-```bash
-# Terminal
-docker compose exec db psql -U pipeline_user -d sensor_data
-\dt                                    # list tables
-SELECT COUNT(*) FROM sensor_readings;  # verify row count
-SELECT COUNT(*) FROM anomalies;
-```
-
-Docker Desktop: Containers → `hks-db-1` → **Exec** tab → run the `psql` command above.
-
-**API:**
-
-```bash
-# All anomalies (paginated)
-curl http://localhost/api/anomalies?limit=5
-
-# Filter by sensor, type, and minimum confidence
-curl "http://localhost/api/anomalies?sensor_id=TEMP_002&anomaly_type=temperature_anomaly&min_confidence_pct=95"
-
-# Filter by date range
-curl "http://localhost/api/anomalies?start=2026-05-06T00:00:00Z&end=2026-05-06T23:59:59Z"
-
-# Populate dashboard dropdowns
-curl http://localhost/api/sensors
-curl http://localhost/api/anomaly-types
-
-# Liveness probe
-curl http://localhost/health
-```
-
-Example response from `/api/anomalies`:
-
-```json
-[
-  {
-    "id": 42,
-    "sensor_data_id": 381,
-    "sensor_id": "TEMP_002",
-    "anomaly_type": "temperature_anomaly",
-    "confidence_score": 2.85,
-    "confidence_pct": 99.56,
-    "detected_at": "2026-05-06T15:24:01.000Z"
-  }
-]
-```
-
----
-
-## Deploying to AWS
+### Deploying to AWS
 
 The Terraform configuration in `terraform/` provisions the full AWS stack (VPC, RDS PostgreSQL 15, ECS Fargate for the API and pipeline, ALB, ECR, and S3 for static frontend hosting). `terraform validate` runs automatically in CI on every push to confirm the configuration is syntactically valid.
 
@@ -109,21 +84,58 @@ To activate a live deployment:
 
 Once `AWS_ROLE_ARN` is set, the CI/CD pipeline automatically builds and pushes Docker images to ECR and triggers an ECS rolling deployment on every push to `main`.
 
+### Checking the Stack
+
+```bash
+# All 4 containers are running and healthy
+docker compose ps
+
+# Watch pipeline ingestion in real time
+docker compose logs pipeline -f
+
+# API is responding
+curl http://localhost/health
+curl "http://localhost/api/anomalies?limit=5"
+
+# Database has data
+docker compose exec db psql -U pipeline_user -d sensor_data \
+  -c "SELECT COUNT(*) FROM sensor_readings; SELECT COUNT(*) FROM anomalies;"
+```
+
+### Troubleshooting
+
+**Port 80 already in use** — another process (Apache, IIS on Windows) may be using port 80. On Mac: `sudo lsof -i :80`. On Windows: check IIS in Services. Stop the conflicting process or change the nginx port in `docker-compose.yml`.
+
+**Docker not running** — open Docker Desktop and wait for the whale icon to stop animating before running `docker compose up`.
+
+**Containers stuck starting** — run `docker compose logs db` to check if PostgreSQL finished initializing. The pipeline and API wait for the DB healthcheck to pass before starting.
+
+**Apple Silicon (M1/M2)** — all base images (`python:3.11-slim`, `postgres:15-alpine`, `nginx:alpine`) are multi-architecture and pull the correct arm64 image automatically. No flags needed.
+
+**Windows line endings** — if files are edited on Windows, Git may convert line endings (CRLF). The project has no shell scripts so this is unlikely to matter, but set `git config core.autocrlf false` if you encounter issues.
+
+### Teardown
+
+```bash
+docker compose restart          # restart containers, existing data survives
+docker compose down             # stop containers, data volume survives
+docker compose down -v          # stop containers AND wipe the database volume
+
+docker volume ls                # list all Docker volumes on your machine
+docker volume prune             # remove all unused volumes
+```
+
+`docker compose restart` and `docker compose down` (without `-v`) both preserve the `postgres_data` volume — the database survives and the pipeline skips its initial seed on restart. Only `docker compose down -v` resets to a clean state.
+
+The pipeline stops automatically after `MAX_RUNTIME_MINUTES` (default: 30) to prevent unbounded data growth during local demos. At ~1,000 readings/minute the database grows roughly 3–4 MB over a 30-minute run.
+
+### Video Walkthrough
+
+*[Link to be added]*
+
 ---
 
-## Documentation
-
-
-| Document                                                   | Description                                                      |
-| ---------------------------------------------------------- | ---------------------------------------------------------------- |
-| [docs/DECISIONS.md](docs/DECISIONS.md)                     | Architectural and process decisions with reasoning and tradeoffs |
-| [docs/INFRASTRUCTURE_PLAN.md](docs/INFRASTRUCTURE_PLAN.md) | Component specs, schema, and operational notes                   |
-| [docs/provided/](docs/provided/)                           | Original exercise files provided by HKS                          |
-
-
----
-
-## Infrastructure Diagram
+## Architecture
 
 ```
                         +------------------------------------------+
@@ -148,42 +160,163 @@ AWS:    ALB --> ECS Fargate (api) --> RDS Postgres <-- ECS Fargate (pipeline)
         Images stored in ECR. State managed by Terraform in S3.
 ```
 
-**Component responsibilities:**
+| Component | Local | AWS Equivalent |
+|---|---|---|
+| Reverse proxy / frontend | nginx container | ALB + S3 static hosting |
+| API | FastAPI container | ECS Fargate service |
+| Pipeline | Python container (scheduled loop) | ECS Fargate service |
+| Database | PostgreSQL container | RDS PostgreSQL 15 |
+| Image registry | Local Docker | ECR |
+| State storage | — | S3 + DynamoDB |
 
+### API
 
-| Component                | Local                             | AWS Equivalent                                      |
-| ------------------------ | --------------------------------- | --------------------------------------------------- |
-| Reverse proxy / frontend | nginx container                   | ALB + nginx not needed (ALB routes directly to API) |
-| API                      | FastAPI container                 | ECS Fargate service                                 |
-| Pipeline                 | Python container (scheduled loop) | ECS Fargate service                                 |
-| Database                 | PostgreSQL container              | RDS PostgreSQL 15                                   |
-| Image registry           | Local Docker                      | ECR                                                 |
-| State storage            | —                                 | S3 + DynamoDB                                       |
+The REST API is built with FastAPI and served on port 8000 inside Docker, proxied through nginx at `http://localhost/api/`.
 
+**Key files:**
+- `services/api/main.py` — endpoint definitions
+- `services/api/models.py` — Pydantic response models
+- `services/api/utils.py` — z-score to confidence percentage conversion
+- `services/api/database.py` — PostgreSQL connection pool
+- `services/api/tests/` — 19 unit tests (run with `pytest`)
+
+**Endpoints:**
+
+```bash
+# All anomalies (paginated, newest first)
+curl "http://localhost/api/anomalies?limit=5"
+
+# Filter by sensor, type, and minimum confidence
+curl "http://localhost/api/anomalies?sensor_id=TEMP_002&anomaly_type=temperature_anomaly&min_confidence_pct=95"
+
+# Filter by date range
+curl "http://localhost/api/anomalies?start=2026-05-06T00:00:00Z&end=2026-05-06T23:59:59Z"
+
+# Dropdown data
+curl http://localhost/api/sensors
+curl http://localhost/api/anomaly-types
+
+# Liveness probe
+curl http://localhost/health
+```
+
+**Example response from `/api/anomalies`:**
+
+```json
+[
+  {
+    "id": 42,
+    "sensor_data_id": 381,
+    "sensor_id": "TEMP_002",
+    "anomaly_type": "temperature_anomaly",
+    "confidence_score": 2.85,
+    "confidence_pct": 99.56,
+    "detected_at": "2026-05-06T15:24:01.000Z"
+  }
+]
+```
+
+**Useful commands:**
+
+```bash
+docker compose logs api -f          # watch live API requests
+```
+
+### Database
+
+PostgreSQL 15 running in Docker, initialized from `db/init.sql` on first start. The schema has two tables: `sensor_readings` and `anomalies`, with indexes on the columns most commonly used for filtering.
+
+**Key files:**
+- `db/init.sql` — schema definition, tables, and indexes
+
+**Accessing directly:**
+
+```bash
+# Terminal
+docker compose exec db psql -U pipeline_user -d sensor_data
+
+# Useful psql commands once connected
+\dt                                     # list tables
+SELECT COUNT(*) FROM sensor_readings;   # total readings ingested
+SELECT COUNT(*) FROM anomalies;         # total anomalies detected
+SELECT * FROM anomalies ORDER BY detected_at DESC LIMIT 5;
+```
+
+Docker Desktop alternative: Containers → `hks-db-1` → **Exec** tab → run the `psql` command above.
+
+### Pipeline
+
+A Python process that runs on a configurable interval. On first start it seeds the database with 10,000 readings; subsequent cycles add 1,000. It uses the provided `DataGenerator` to create synthetic sensor readings and `AnomalyDetector` to flag statistical outliers.
+
+**Key files:**
+- `services/pipeline/run_pipeline.py` — orchestration loop
+- `docs/provided/2_generate_data.py` — provided data generator (copied into container at build time)
+- `docs/provided/3_anomaly_detector.py` — provided z-score anomaly detector (copied into container at build time)
+
+**Useful commands:**
+
+```bash
+docker compose logs pipeline -f     # watch ingestion cycles in real time
+```
+
+### Docker and nginx
+
+Four containers are defined in `docker-compose.yml`: `db`, `pipeline`, `api`, and `nginx`. The `db` and `api` containers have healthchecks; `pipeline` and `api` wait for the DB to be healthy before starting.
+
+nginx serves the static frontend at `/` and proxies all `/api/` traffic to the FastAPI container. The frontend HTML, CSS, and JS are in `frontend/index.html`.
+
+**Key files:**
+- `docker-compose.yml` — container definitions, networking, volumes, healthchecks
+- `nginx/nginx.conf` — routing rules
+- `nginx/Dockerfile` — copies frontend files into the nginx image
+- `frontend/index.html` — dashboard (single file, no build step)
+- `services/api/Dockerfile` — API image
+- `services/pipeline/Dockerfile` — pipeline image
+
+**Useful commands:**
+
+```bash
+docker compose up --build           # build all images and start
+docker compose ps                   # check container status and health
+docker compose down                 # stop (data persists)
+docker compose down -v              # stop and wipe database
+```
 
 ---
 
-## Requirements & Constraints Verification
+## Requirements Verification
 
-
-| Requirement                              | How it's met                                                                                                    | How to verify                                                           |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Ingest CSV sensor data into PostgreSQL   | Pipeline generates batches, bulk-inserts via `execute_values` into `sensor_readings`                            | `docker compose logs pipeline -f` shows cycle output                    |
-| Anomaly detection with confidence scores | `3_anomaly_detector.py` (provided) runs z-score detection; z-scores converted to confidence % via `utils.py`    | Dashboard confidence column; `SELECT * FROM anomalies LIMIT 5;` in psql |
-| Store results with anomaly flags         | `anomalies` table stores `anomaly_type`, `confidence_score`, `detected_at`, FK to `sensor_readings`             | `SELECT COUNT(*) FROM anomalies;` in psql                               |
-| REST API                                 | FastAPI serves `/api/anomalies`, `/api/sensors`, `/api/anomaly-types`, `/health`                                | `curl http://localhost/api/anomalies?limit=5`                           |
-| Simple web dashboard                     | Vanilla HTML/JS at `http://localhost` with filters for sensor, type, confidence, date range                     | Navigate to `http://localhost`                                          |
-| Docker Compose orchestration             | `docker-compose.yml` defines db, pipeline, api, nginx with healthchecks and `depends_on`                        | `docker compose ps` shows all 4 services healthy                        |
-| >10k records handled efficiently         | Bulk insert via `execute_values`; indexed on `sensor_id`, `timestamp`, `detected_at`; API paginated             | `docker compose logs pipeline -f` — 10k seed runs in seconds            |
-| Database persists between restarts       | Named volume `postgres_data` survives `docker compose restart` and `docker compose down`                        | Row count before and after `docker compose restart` stays the same      |
-| Basic monitoring / health checks         | `/health` endpoint; Docker healthchecks on `db` and `api`; ALB health check in Terraform                        | `curl http://localhost/health` returns `{"status":"ok"}`                |
-| Terraform for AWS                        | `terraform/main.tf` provisions VPC, RDS, ECS, ALB, ECR, S3                                                      | `terraform validate` passes in CI on every push (see Actions tab)       |
-| CI/CD pipeline                           | GitHub Actions: tests + `terraform validate` on every push; Docker build or ECR deploy based on AWS credentials | See `.github/workflows/deploy.yml`; Actions tab shows test job green    |
-
+| Requirement | How it's met | How to verify |
+|---|---|---|
+| Ingest CSV sensor data into PostgreSQL | Pipeline generates batches, bulk-inserts via `execute_values` into `sensor_readings` | `docker compose logs pipeline -f` shows cycle output |
+| Anomaly detection with confidence scores | `3_anomaly_detector.py` (provided) runs z-score detection; scores converted to confidence % via `utils.py` | Dashboard confidence column; `SELECT * FROM anomalies LIMIT 5;` in psql |
+| Store results with anomaly flags | `anomalies` table stores `anomaly_type`, `confidence_score`, `detected_at`, FK to `sensor_readings` | `SELECT COUNT(*) FROM anomalies;` in psql |
+| REST API | FastAPI serves `/api/anomalies`, `/api/sensors`, `/api/anomaly-types`, `/health` | `curl http://localhost/api/anomalies?limit=5` |
+| Simple web dashboard | Vanilla HTML/JS at `http://localhost` with filters for sensor, type, confidence, date range | Navigate to `http://localhost` |
+| Docker Compose orchestration | `docker-compose.yml` defines db, pipeline, api, nginx with healthchecks and `depends_on` | `docker compose ps` shows all 4 services healthy |
+| >10k records handled efficiently | Bulk insert via `execute_values`; indexed on `sensor_id`, `timestamp`, `detected_at`; API paginated | `docker compose logs pipeline -f` — 10k seed runs in seconds |
+| Database persists between restarts | Named volume `postgres_data` survives `docker compose restart` and `docker compose down` | Row count before and after `docker compose restart` stays the same |
+| Basic monitoring / health checks | `/health` endpoint; Docker healthchecks on `db` and `api`; ALB health check in Terraform | `curl http://localhost/health` returns `{"status":"ok"}` |
+| Terraform for AWS | `terraform/main.tf` provisions VPC, RDS, ECS, ALB, ECR, S3 | `terraform validate` passes in CI on every push (see Actions tab) |
+| CI/CD pipeline | GitHub Actions: tests + `terraform validate` on every push; Docker build or ECR deploy based on AWS credentials | See `.github/workflows/deploy.yml`; Actions tab shows test job green |
 
 ---
 
-## What Would Change to Scale / Release to Production
+## Documentation
+
+| Document | Description |
+|---|---|
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Architectural and process decisions with reasoning and tradeoffs |
+| [docs/INFRASTRUCTURE_PLAN.md](docs/INFRASTRUCTURE_PLAN.md) | Component specs, schema, and operational notes |
+| [docs/provided/](docs/provided/) | Original exercise files provided by HKS |
+
+---
+
+## Future Changes
+
+### Scalability
+
+Changes required to move this system from a local demo to a production deployment:
 
 **Infrastructure:**
 
@@ -211,9 +344,9 @@ AWS:    ALB --> ECS Fargate (api) --> RDS Postgres <-- ECS Fargate (pipeline)
 - **Least-privilege IAM roles** — the ECS task roles currently have broader permissions than needed. Each service should only be granted what it uses: the pipeline task needs S3 read access, the API task needs RDS access — nothing more.
 - **ECR image scanning** — enabling vulnerability scanning on push to ECR means CI fails if a Docker image contains a known critical CVE, preventing insecure images from being deployed.
 
----
+### Improvements
 
-## What I Would Change With More Time
+Changes that would improve the project given more development time:
 
 - **Schema migrations** — `init.sql` runs automatically the first time Docker starts, which works for local dev. In production, the schema will evolve over time (new columns, indexes, constraints) and those changes need to be applied safely to a live database without data loss. A migration tool like Alembic or Flyway manages this as versioned, ordered scripts rather than a one-time initialization file.
 - **Pipeline resilience** — the pipeline runs as a `while True` loop inside a container. If it crashes mid-cycle, it restarts from scratch with no record of what it was doing. A proper job scheduler (Celery, AWS Step Functions) would track which cycles succeeded, retry failed ones, and expose that history to an operator.
@@ -221,4 +354,3 @@ AWS:    ALB --> ECS Fargate (api) --> RDS Postgres <-- ECS Fargate (pipeline)
 - **Frontend** — the dashboard is intentionally minimal. A research tool in production would likely need time-series charts to visualize anomaly trends, sensor comparison views, and CSV export for researchers who want to work with the data offline.
 - **Terraform modules** — all infrastructure is defined in a single flat file. That is easy to read for a small project but hard to maintain as the system grows. A production codebase would split it into reusable modules: one for networking (VPC, subnets), one for compute (ECS, ALB), one for data (RDS, S3).
 - **CI/CD staging gate** — the pipeline currently deploys directly to production on every push to `main`. A real deployment pipeline would push to a staging environment first, run smoke tests, and require a manual approval step before promoting to production.
-
