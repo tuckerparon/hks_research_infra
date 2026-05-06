@@ -98,6 +98,8 @@ Once `AWS_ROLE_ARN` is set, the CI/CD pipeline automatically builds and pushes D
 
 ### Checking the Stack
 
+Run these in a **new terminal window** from the `hks_research_infra/` directory — your original window is attached to the running containers.
+
 ```bash
 # All 4 containers are running and healthy
 docker compose ps
@@ -105,7 +107,7 @@ docker compose ps
 # Watch pipeline ingestion in real time
 docker compose logs pipeline -f
 
-# API is responding
+# API is responding (any directory)
 curl http://localhost/health
 curl "http://localhost/api/anomalies?limit=5"
 
