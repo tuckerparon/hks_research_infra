@@ -26,7 +26,7 @@ docker compose up --build
 
 Navigate to `http://localhost` — the dashboard loads automatically with the most recent anomalies.
 
-The pipeline seeds 10,000 readings on first start, then adds 1,000 more every 5 minutes.
+The pipeline seeds 10,000 readings on first start, then adds 1,000 more every minute.
 
 **Useful commands:**
 
@@ -41,14 +41,27 @@ docker compose down -v                # stop and wipe the database volume
 ```
 GET /api/anomalies
   ?sensor_id=TEMP_002          # optional filter
+  ?anomaly_type=pressure_anomaly
+  ?min_confidence_pct=95       # server-side confidence threshold (0–100)
   ?start=2026-05-06T00:00:00Z  # optional date range
   ?end=2026-05-06T23:59:59Z
   ?limit=100                   # max 1000
+  ?offset=0
 
+GET /api/sensors               # distinct sensor IDs for dropdown
+GET /api/anomaly-types         # distinct anomaly types for dropdown
 GET /health                    # liveness probe
 ```
 
-Interactive API docs available at `http://localhost/api/docs` when the stack is running.
+---
+
+## Documentation
+
+| Document | Description |
+|---|---|
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Architectural and process decisions with reasoning and tradeoffs |
+| [docs/INFRASTRUCTURE_PLAN.md](docs/INFRASTRUCTURE_PLAN.md) | Component specs, schema, and operational notes |
+| [docs/provided/](docs/provided/) | Original exercise files provided by HKS |
 
 ---
 

@@ -14,10 +14,10 @@ WORKDIR /app
 COPY services/pipeline/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy provided root scripts, renaming them so they are importable
+# Copy provided scripts, renaming them so they are importable
 # (Python cannot import modules whose names start with a number)
-COPY 2_generate_data.py ./generate_data.py
-COPY 3_anomaly_detector.py ./anomaly_detector.py
+COPY docs/provided/2_generate_data.py ./generate_data.py
+COPY docs/provided/3_anomaly_detector.py ./anomaly_detector.py
 
 COPY services/pipeline/run_pipeline.py .
 
