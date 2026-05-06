@@ -57,8 +57,22 @@ jobs:
             echo "configured=false" >> $GITHUB_OUTPUT
           fi
 
+  build-local:
+    name: Build Docker images (local path)
+    runs-on: ubuntu-latest
+    needs: [test, check-aws]
+    if: needs.check-aws.outputs.configured == 'false'
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Create .env from example
+        run: cp .env.example .env
+
+      - name: Build all images via Docker Compose
+        run: docker compose build
+
   build-and-push:
-    name: Build and push images to ECR
+    name: Build and push images to ECR (prod path)
     runs-on: ubuntu-latest
     needs: [test, check-aws]
     if: needs.check-aws.outputs.configured == 'true'
