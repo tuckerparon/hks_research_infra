@@ -1,7 +1,9 @@
 # ── HUMAN REVIEW ──────────────────────────────────────────
 # Reviewer: Tucker Paron
 # Date: 2026-05-05
-# Changes from AI draft: None
+# Changes from AI draft:
+#   - Added two path approach wherein local docker is built when no AWS credential 
+#     provided. When we have credentials (presuming we have S3 setup), prod path will run.
 # Notes:
 #   - requires settin up actual S3 bucket and getting OIDC IAM identity for secrets
 # ──────────────────────────────────────────────────────────

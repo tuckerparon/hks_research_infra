@@ -155,3 +155,19 @@ def test_list_anomaly_types_returns_list():
     data = response.json()
     assert isinstance(data, list)
     assert 'temperature_spike' in data
+
+
+def test_list_sensors_returns_list():
+    with mock_db(fetchall=[('sensor_001',), ('sensor_002',)]):
+        response = client.get('/api/sensors')
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+    assert 'sensor_001' in data
+
+
+def test_list_anomalies_pagination():
+    with mock_db(fetchall=[ANOMALY_ROW]):
+        response = client.get('/api/anomalies?limit=10&offset=0')
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
