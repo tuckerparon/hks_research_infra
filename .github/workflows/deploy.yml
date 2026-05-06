@@ -1,0 +1,109 @@
+# ── HUMAN REVIEW ──────────────────────────────────────────
+# Reviewer: Tucker Paron
+# Date: 2026-05-05
+# Changes from AI draft: None
+# Notes:
+#   - requires settin up actual S3 bucket and getting OIDC IAM identity for secrets
+# ──────────────────────────────────────────────────────────
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  test:
+    name: Run API tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install fastapi uvicorn httpx pytest psycopg2-binary
+
+      - name: Run tests
+        run: pytest services/api/tests/ -v
+
+  build-and-push:
+    name: Build and push images to ECR
+    runs-on: ubuntu-latest
+    needs: test  # only runs if tests pass
+    permissions:
+      id-token: write  # required for OIDC auth to AWS
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push API image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build \
+            -f services/api/Dockerfile \
+            -t $ECR_REGISTRY/hks-prod-api:$IMAGE_TAG \
+            -t $ECR_REGISTRY/hks-prod-api:latest \
+            ./services/api
+          docker push $ECR_REGISTRY/hks-prod-api:$IMAGE_TAG
+          docker push $ECR_REGISTRY/hks-prod-api:latest
+
+      - name: Build and push pipeline image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build \
+            -f services/pipeline/Dockerfile \
+            -t $ECR_REGISTRY/hks-prod-pipeline:$IMAGE_TAG \
+            -t $ECR_REGISTRY/hks-prod-pipeline:latest \
+            .
+          docker push $ECR_REGISTRY/hks-prod-pipeline:$IMAGE_TAG
+          docker push $ECR_REGISTRY/hks-prod-pipeline:latest
+
+  deploy:
+    name: Deploy to ECS
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Force ECS to pull new images
+        run: |
+          aws ecs update-service \
+            --cluster hks-prod-cluster \
+            --service hks-prod-api \
+            --force-new-deployment
+
+          aws ecs update-service \
+            --cluster hks-prod-cluster \
+            --service hks-prod-pipeline \
+            --force-new-deployment
