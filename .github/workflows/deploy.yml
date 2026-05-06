@@ -17,7 +17,8 @@ env:
 
 jobs:
   test:
-    name: Run API tests
+    name: Run API tests and validate Terraform
+
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4.2.2
@@ -31,6 +32,12 @@ jobs:
 
       - name: Run tests
         run: pytest services/api/tests/ -v
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Validate Terraform
+        run: terraform -chdir=terraform init -backend=false && terraform -chdir=terraform validate
 
   build-and-push:
     name: Build and push images to ECR

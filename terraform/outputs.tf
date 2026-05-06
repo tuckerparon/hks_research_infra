@@ -6,9 +6,14 @@
 #   - Not examined in detail due to req being "terraform infra" in place
 # ──────────────────────────────────────────────────────────
 
-output "app_url" {
-  description = "Public URL of the application (ALB DNS name)"
+output "api_url" {
+  description = "Public URL of the API (ALB DNS name)"
   value       = "http://${aws_lb.main.dns_name}"
+}
+
+output "frontend_url" {
+  description = "Public URL of the frontend (S3 static website)"
+  value       = "http://${aws_s3_bucket_website_configuration.frontend.website_endpoint}"
 }
 
 output "api_ecr_url" {
