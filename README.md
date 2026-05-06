@@ -132,16 +132,27 @@ docker compose exec db psql -U pipeline_user -d sensor_data \
 
 ### Teardown
 
-```bash
-docker compose restart          # restart containers, existing data survives
-docker compose down             # stop containers, data volume survives
-docker compose down -v          # stop containers AND wipe the database volume
+**Complete teardown (wipes all data):**
 
+```bash
+docker compose down -v          # stop containers AND delete the database volume
+```
+
+**Stop containers but keep data:**
+
+```bash
+docker compose down             # stops pipeline and all containers, data volume survives
+```
+
+Data persists in the `postgres_data` Docker volume. On next `docker compose up --build` the pipeline will detect existing data and skip the seed batch.
+
+**Other useful commands:**
+
+```bash
+docker compose restart          # restart containers without stopping, data survives
 docker volume ls                # list all Docker volumes on your machine
 docker volume prune             # remove all unused volumes
 ```
-
-`docker compose restart` and `docker compose down` (without `-v`) both preserve the `postgres_data` volume — the database survives and the pipeline skips its initial seed on restart. Only `docker compose down -v` resets to a clean state.
 
 The pipeline stops automatically after `MAX_RUNTIME_MINUTES` (default: 30) to prevent unbounded data growth during local demos. At ~1,000 readings/minute the database grows roughly 3–4 MB over a 30-minute run.
 
