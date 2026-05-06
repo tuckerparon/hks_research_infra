@@ -81,7 +81,9 @@ docker compose up --build
 
 Navigate to `http://localhost`.
 
-### Deploying to AWS
+### Deploying to AWS (Production Only)
+
+> **This section is not required to run the project locally.** The Mac and Windows steps above are all you need for local development. This section covers deploying the full stack to AWS for production use.
 
 The Terraform configuration in `terraform/` provisions the full AWS stack (VPC, RDS PostgreSQL 15, ECS Fargate for the API and pipeline, ALB, ECR, and S3 for static frontend hosting). `terraform validate` runs automatically in CI on every push to confirm the configuration is syntactically valid.
 
@@ -151,18 +153,18 @@ The pipeline stops automatically after `MAX_RUNTIME_MINUTES` (default: 30) to pr
                         +------------------------------------------+
                         |             Docker / AWS                 |
                         |                                          |
-  Browser --- :80 -->   |  +--------+                             |
-                        |  | nginx  |                             |
-                        |  +---+----+                             |
-                        |      | /api/*                           |
-                        |  +---v----+       +--------------+      |
-                        |  |  API   +<----->+  PostgreSQL  |      |
-                        |  | FastAPI|       +------+-------+      |
-                        |  +--------+              |              |
-                        |                   +------v---------+    |
-                        |                   |    Pipeline    |    |
-                        |                   |  (scheduled)   |    |
-                        |                   +----------------+    |
+  Browser --- :80 -->   |  +--------+                              |
+                        |  | nginx  |                              |
+                        |  +---+----+                              |
+                        |      | /api/*                            |
+                        |  +---v----+       +--------------+       |
+                        |  |  API   +<----->+  PostgreSQL  |       |
+                        |  | FastAPI|       +------+-------+       |
+                        |  +--------+              |               |
+                        |                   +------v---------+     |
+                        |                   |    Pipeline    |     |
+                        |                   |  (scheduled)   |     |
+                        |                   +----------------+     |
                         +------------------------------------------+
 
 Local:  nginx --> api --> postgres <-- pipeline
