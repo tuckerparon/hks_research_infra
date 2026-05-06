@@ -147,8 +147,15 @@ def main():
     conn = psycopg2.connect(**DB_CONFIG)
     start_time = time.time()
 
-    # First cycle seeds the DB with a larger batch
-    run_cycle(conn, detector, batch_size=10000)
+    with conn.cursor() as cur:
+        cur.execute("SELECT EXISTS(SELECT 1 FROM sensor_readings LIMIT 1)")
+        has_data = cur.fetchone()[0]
+
+    if not has_data:
+        logger.info("Empty database — running initial 10,000-row seed batch...")
+        run_cycle(conn, detector, batch_size=10000)
+    else:
+        logger.info("Existing data found — skipping seed batch.")
 
     while True:
         if MAX_RUNTIME_MINUTES and (time.time() - start_time) > MAX_RUNTIME_MINUTES * 60:
