@@ -271,6 +271,7 @@ docker compose exec db psql -U pipeline_user -d sensor_data
 SELECT COUNT(*) FROM sensor_readings;   # total readings ingested
 SELECT COUNT(*) FROM anomalies;         # total anomalies detected
 SELECT * FROM anomalies ORDER BY detected_at DESC LIMIT 5;
+\q                                      # exit psql
 ```
 
 Docker Desktop alternative: Containers → `hks-db-1` → **Exec** tab → run the `psql` command above.
