@@ -187,38 +187,43 @@ AWS:    ALB --> ECS Fargate (api) --> RDS Postgres <-- ECS Fargate (pipeline)
 
 **Infrastructure:**
 
-- Enable RDS Multi-AZ for failover; add read replica for API query load
-- Add HTTPS: ACM certificate on the ALB, redirect HTTP → HTTPS
-- Set ECS `desired_count = 2+` for the API behind the ALB for high availability
-- Enable RDS automated backups and set `deletion_protection = true`
-- Move DB credentials to AWS Secrets Manager; grant ECS tasks IAM access instead of env vars
+- **RDS Multi-AZ + read replica** — currently one database instance. If it goes down, the whole system stops. Multi-AZ keeps a live standby in a second data center that takes over automatically on failure. A read replica offloads API query traffic from the primary.
+- **HTTPS** — traffic is currently unencrypted HTTP. In production, an ACM certificate on the ALB encrypts all traffic between users and the system.
+- **Multiple API instances** — currently one API container runs behind the load balancer. If it crashes, requests fail until it restarts. Setting `desired_count = 2+` in ECS means the ALB routes around unhealthy instances automatically.
+- **RDS automated backups** — no backup policy exists today. Enabling point-in-time recovery means a bad migration or accidental delete can be rolled back to any point in the last N days.
+- **Secrets Manager for credentials** — DB credentials are currently in environment variables, which can leak via logs or task definitions. AWS Secrets Manager stores them encrypted; ECS tasks fetch them at runtime via IAM permissions instead.
 
 **Pipeline:**
 
-- Replace the data generator with a real source (S3 file drop, Kafka topic, or MQTT broker)
-- Add dead-letter handling for failed ingestion cycles
-- Pin `requirements.txt` to exact versions for reproducible builds
+- **Real data source** — the pipeline currently generates synthetic data. In production it would pull from wherever sensor data actually lands: an S3 bucket, a Kafka topic, or an MQTT broker. The processing code doesn't change, only the input source.
+- **Dead-letter handling** — if an ingestion cycle fails today (DB briefly unreachable, malformed data), the failure is logged and the cycle is skipped silently. A dead-letter queue would capture failed batches so they can be retried or inspected.
+- **Pinned dependency versions** — `requirements.txt` currently uses unpinned versions (`fastapi`, not `fastapi==0.115.0`). A library releasing a breaking change could silently break a build. Pinning to exact versions makes every build reproducible.
 
 **Observability:**
 
-- Add structured logging (JSON) so CloudWatch Logs Insights can query across services
-- Create CloudWatch alarms on API error rate and pipeline cycle lag
-- Add `/metrics` endpoint for Prometheus scraping if needed
+- **Structured (JSON) logging** — current logs are plain text strings. Switching to JSON means CloudWatch Logs Insights can query across services: e.g., "show all pipeline cycles in the last hour where anomaly count exceeded 500."
+- **CloudWatch alarms** — no alerting exists. Alarms on API error rate and pipeline cycle lag would page an on-call engineer before users notice a problem.
+- **Prometheus `/metrics` endpoint** — for teams running Grafana dashboards, a `/metrics` endpoint would expose API latency histograms and pipeline cycle counters in a format Prometheus can scrape.
 
 **Security:**
 
-- Move ECS tasks to private subnets with NAT Gateway (currently in public subnets for demo simplicity)
-- Enforce least-privilege IAM roles per service
-- Enable ECR image scanning on push
+- **Private subnets** — ECS tasks currently run in public subnets, meaning each container has a publicly routable IP address. Moving them to private subnets with a NAT Gateway means containers can reach the internet (to pull images, etc.) but cannot be reached directly from it.
+- **Least-privilege IAM roles** — the ECS task roles currently have broader permissions than needed. Each service should only be granted what it uses: the pipeline task needs S3 read access, the API task needs RDS access — nothing more.
+- **ECR image scanning** — enabling vulnerability scanning on push to ECR means CI fails if a Docker image contains a known critical CVE, preventing insecure images from being deployed.
 
 ---
 
 ## What I Would Change With More Time
 
-- **Schema migrations**: `init.sql` runs once automatically in Docker but needs a proper migration tool (Alembic or Flyway) for production — especially once the schema evolves
-- **Pipeline resilience**: the current `while True` loop loses progress silently if it crashes; a proper job scheduler (Celery, AWS Step Functions) would add retry logic and visibility
-- **Tests**: API unit tests mock the database. Integration tests against a real Postgres container (via `pytest` + Docker) would catch SQL bugs the mocks miss
-- **Frontend**: the dashboard is intentionally minimal — a real research tool would want time-series charts, sensor comparison views, and CSV export
-- **Terraform modules**: the flat single-file structure was a deliberate choice for readability in a demo; a production codebase would break networking, compute, and data into reusable modules
-- **CI/CD**: the workflow deploys on every push to main with no staging environment; a real pipeline would deploy to staging first and gate production on manual approval
+- **Schema migrations** — `init.sql` runs automatically the first time Docker starts, which works for local dev. In production, the schema will evolve over time (new columns, indexes, constraints) and those changes need to be applied safely to a live database without data loss. A migration tool like Alembic or Flyway manages this as versioned, ordered scripts rather than a one-time initialization file.
+
+- **Pipeline resilience** — the pipeline runs as a `while True` loop inside a container. If it crashes mid-cycle, it restarts from scratch with no record of what it was doing. A proper job scheduler (Celery, AWS Step Functions) would track which cycles succeeded, retry failed ones, and expose that history to an operator.
+
+- **Integration tests** — the current tests mock the database, which means they verify the API logic but not the SQL. A test that spins up a real Postgres container (via Docker in CI) and runs the actual queries would catch bugs that only appear against a live database — wrong column names, constraint violations, query plan issues.
+
+- **Frontend** — the dashboard is intentionally minimal. A research tool in production would likely need time-series charts to visualize anomaly trends, sensor comparison views, and CSV export for researchers who want to work with the data offline.
+
+- **Terraform modules** — all infrastructure is defined in a single flat file. That is easy to read for a small project but hard to maintain as the system grows. A production codebase would split it into reusable modules: one for networking (VPC, subnets), one for compute (ECS, ALB), one for data (RDS, S3).
+
+- **CI/CD staging gate** — the pipeline currently deploys directly to production on every push to `main`. A real deployment pipeline would push to a staging environment first, run smoke tests, and require a manual approval step before promoting to production.
 
