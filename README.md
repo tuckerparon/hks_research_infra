@@ -98,9 +98,11 @@ Once `AWS_ROLE_ARN` is set, the CI/CD pipeline automatically builds and pushes D
 
 ### Sanity Checks
 
-Run these in a **new terminal window** from the `hks_research_infra/` directory — your original window is attached to the running containers.
+Open a new terminal window — your original window is attached to the running containers.
 
 ```bash
+cd hks_research_infra
+
 # All 4 containers are running and healthy
 docker compose ps
 
