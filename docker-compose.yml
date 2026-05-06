@@ -42,6 +42,7 @@ services:
       POSTGRES_HOST: ${POSTGRES_HOST}
       POSTGRES_PORT: ${POSTGRES_PORT}
       PIPELINE_INTERVAL_MINUTES: ${PIPELINE_INTERVAL_MINUTES}
+      MAX_RUNTIME_MINUTES: ${MAX_RUNTIME_MINUTES}
     depends_on:
       db:
         condition: service_healthy
