@@ -12,7 +12,7 @@ A research data pipeline that ingests sensor readings, detects anomalies, and se
   - [Mac](#mac)
   - [Windows](#windows)
   - [Deploying to AWS](#deploying-to-aws)
-  - [Checking the Stack](#checking-the-stack)
+  - [Sanity Checks](#sanity-checks)
   - [Troubleshooting](#troubleshooting)
   - [Teardown](#teardown)
   - [Video Walkthrough](#video-walkthrough)
@@ -96,7 +96,7 @@ To activate a live deployment:
 
 Once `AWS_ROLE_ARN` is set, the CI/CD pipeline automatically builds and pushes Docker images to ECR and triggers an ECS rolling deployment on every push to `main`.
 
-### Checking the Stack
+### Sanity Checks
 
 Run these in a **new terminal window** from the `hks_research_infra/` directory — your original window is attached to the running containers.
 
