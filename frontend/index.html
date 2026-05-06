@@ -3,6 +3,7 @@
      Reviewer: Tucker Paron
      Date: 2026-05-05
      Changes from AI draft:
+       - Removed multiply by 100 transformation on confidence score 
      Notes:
         - Did not review in full detail. Am less concerned about reviewing 
           AI frontend code so long as it doesn't transform the data.
@@ -58,7 +59,7 @@
     button {
       align-self: flex-end;
       padding: .45rem 1.2rem;
-      background: #3b6ff0;
+      background: #A41034;
       color: #fff;
       border: none;
       border-radius: 4px;
@@ -66,7 +67,16 @@
       cursor: pointer;
     }
 
-    button:hover { background: #2a55cc; }
+    button:hover { background: #7d0c27; }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+    }
+
+    header img { height: 44px; width: auto; }
 
     #status {
       margin-bottom: 1rem;
@@ -86,7 +96,7 @@
     }
 
     th {
-      background: #3b6ff0;
+      background: #A41034;
       color: #fff;
       text-align: left;
       padding: .65rem 1rem;
@@ -120,7 +130,10 @@
 </head>
 <body>
 
-  <h1>Sensor Anomaly Dashboard</h1>
+  <header>
+    <h1>Sensor Anomaly Dashboard</h1>
+    <img src="/assets/hks-logo.png" alt="Harvard Kennedy School" />
+  </header>
 
   <div class="filters">
     <label>
@@ -142,7 +155,11 @@
     <button onclick="fetchAnomalies()">Search</button>
   </div>
 
-  <div id="status"></div>
+  <div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem;">
+    <div id="status"></div>
+    <span style="font-size:.85rem; color:#888;">Pipeline adds new data every 1 minute.</span>
+    <button onclick="fetchAnomalies()" style="padding:.3rem .9rem; font-size:.85rem;">Refresh</button>
+  </div>
 
   <div id="empty">No anomalies found for the selected filters.</div>
 
@@ -210,7 +227,7 @@
           <td>${r.id}</td>
           <td>${r.sensor_id}</td>
           <td><span class="badge">${r.anomaly_type}</span></td>
-          <td>${(r.confidence_score * 100).toFixed(1)}%</td>
+          <td>${r.confidence_pct.toFixed(1)}%</td>
           <td>${new Date(r.detected_at).toUTCString()}</td>
         `;
         tbody.appendChild(tr);

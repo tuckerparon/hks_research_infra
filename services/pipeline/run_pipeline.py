@@ -33,6 +33,7 @@ DB_CONFIG = {
 }
 
 INTERVAL_MINUTES = int(os.getenv('PIPELINE_INTERVAL_MINUTES', 5))
+MAX_RUNTIME_MINUTES = int(os.getenv('MAX_RUNTIME_MINUTES', 0))  # 0 = no limit
 
 
 def wait_for_db():
@@ -138,15 +139,23 @@ def main():
     The first cycle uses batch_size=10,000 to give the API and dashboard meaningful
     data immediately. Subsequent cycles use batch_size=1,000 to simulate ongoing
     sensor ingestion. The interval is configured via PIPELINE_INTERVAL_MINUTES (default 5).
+    MAX_RUNTIME_MINUTES stops the pipeline after a set duration — useful for local demos
+    to avoid unbounded data growth. Set to 0 (default) for no limit (production).
     """
     wait_for_db()
     detector = AnomalyDetector()
     conn = psycopg2.connect(**DB_CONFIG)
+    start_time = time.time()
 
     # First cycle seeds the DB with a larger batch
     run_cycle(conn, detector, batch_size=10000)
 
     while True:
+        if MAX_RUNTIME_MINUTES and (time.time() - start_time) > MAX_RUNTIME_MINUTES * 60:
+            logger.info(f"MAX_RUNTIME_MINUTES ({MAX_RUNTIME_MINUTES}) reached — pipeline stopping.")
+            conn.close()
+            return
+
         logger.info(f"Sleeping {INTERVAL_MINUTES} minutes until next cycle...")
         time.sleep(INTERVAL_MINUTES * 60)
         run_cycle(conn, detector, batch_size=1000)

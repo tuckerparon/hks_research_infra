@@ -3,9 +3,11 @@
 # Date: 2026-05-05
 # Changes from AI draft:
 #   - Removed tests for /api/readings and /api/stats — endpoints removed
+#   - Added z_to_confidence unit tests
 # Notes:
 # ──────────────────────────────────────────────────────────
 
+import math
 import os
 import sys
 from contextlib import contextmanager
@@ -16,13 +18,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from fastapi.testclient import TestClient
 from main import app
+from utils import z_to_confidence
 
 client = TestClient(app)
 
 NOW = datetime(2026, 5, 5, 10, 0, 0, tzinfo=timezone.utc)
 
 # Matches SELECT: a.id, a.sensor_data_id, sr.sensor_id, a.anomaly_type, a.confidence_score, a.detected_at
-ANOMALY_ROW = (1, 1, 'sensor_001', 'temperature_spike', 0.92, NOW)
+ANOMALY_ROW = (1, 1, 'sensor_001', 'temperature_spike', 2.5, NOW)
 
 
 @contextmanager
@@ -46,6 +49,34 @@ def mock_db(fetchall=None):
         yield
 
 
+# ── z_to_confidence unit tests ────────────────────────────
+
+def test_z_to_confidence_known_values():
+    # z=1.96 is the classic 95% threshold
+    assert abs(z_to_confidence(1.96) - 95.0) < 0.1
+    # z=2.576 is the classic 99% threshold
+    assert abs(z_to_confidence(2.576) - 99.0) < 0.1
+
+def test_z_to_confidence_symmetry():
+    # Negative z-scores should give the same result as positive
+    assert z_to_confidence(-2.0) == z_to_confidence(2.0)
+
+def test_z_to_confidence_zero():
+    # z=0 means the value is exactly at the mean — 0% confidence it's anomalous
+    assert z_to_confidence(0.0) == 0.0
+
+def test_z_to_confidence_high_z():
+    # Very high z-scores should be close to 100%
+    assert z_to_confidence(5.0) > 99.99
+
+def test_z_to_confidence_returns_float():
+    result = z_to_confidence(3.0)
+    assert isinstance(result, float)
+    assert 0.0 <= result <= 100.0
+
+
+# ── API endpoint tests ────────────────────────────────────
+
 def test_health():
     response = client.get('/health')
     assert response.status_code == 200
@@ -60,6 +91,8 @@ def test_list_anomalies_returns_list():
     assert isinstance(data, list)
     assert data[0]['anomaly_type'] == 'temperature_spike'
     assert data[0]['sensor_id'] == 'sensor_001'
+    assert 'confidence_pct' in data[0]
+    assert data[0]['confidence_pct'] > 0
 
 
 def test_list_anomalies_filter_by_sensor_id():

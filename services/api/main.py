@@ -5,6 +5,8 @@
 #   - Removed /api/readings and /api/stats — not required by README
 #   - Removed get_reading (single-resource lookup) — not required by README
 # Notes:
+#   - For sensor readings API call, I disputed the fallback to "all sensors" when requesting
+#     a sensor_id that doesn't exist. This is the correct fallback given sensor_id is not a required input.
 # ──────────────────────────────────────────────────────────
 
 from datetime import datetime
@@ -14,6 +16,7 @@ from fastapi import FastAPI, Query
 
 from database import get_conn
 from models import Anomaly
+from utils import z_to_confidence
 
 app = FastAPI(title="Sensor Data API", version="1.0.0")
 
@@ -72,7 +75,9 @@ def list_anomalies(
     return [
         Anomaly(
             id=r[0], sensor_data_id=r[1], sensor_id=r[2],
-            anomaly_type=r[3], confidence_score=r[4], detected_at=r[5],
+            anomaly_type=r[3], confidence_score=r[4],
+            confidence_pct=z_to_confidence(r[4]),
+            detected_at=r[5],
         )
         for r in rows
     ]
