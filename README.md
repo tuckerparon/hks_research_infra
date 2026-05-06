@@ -216,14 +216,9 @@ AWS:    ALB --> ECS Fargate (api) --> RDS Postgres <-- ECS Fargate (pipeline)
 ## What I Would Change With More Time
 
 - **Schema migrations** — `init.sql` runs automatically the first time Docker starts, which works for local dev. In production, the schema will evolve over time (new columns, indexes, constraints) and those changes need to be applied safely to a live database without data loss. A migration tool like Alembic or Flyway manages this as versioned, ordered scripts rather than a one-time initialization file.
-
 - **Pipeline resilience** — the pipeline runs as a `while True` loop inside a container. If it crashes mid-cycle, it restarts from scratch with no record of what it was doing. A proper job scheduler (Celery, AWS Step Functions) would track which cycles succeeded, retry failed ones, and expose that history to an operator.
-
 - **Integration tests** — the current tests mock the database, which means they verify the API logic but not the SQL. A test that spins up a real Postgres container (via Docker in CI) and runs the actual queries would catch bugs that only appear against a live database — wrong column names, constraint violations, query plan issues.
-
 - **Frontend** — the dashboard is intentionally minimal. A research tool in production would likely need time-series charts to visualize anomaly trends, sensor comparison views, and CSV export for researchers who want to work with the data offline.
-
 - **Terraform modules** — all infrastructure is defined in a single flat file. That is easy to read for a small project but hard to maintain as the system grows. A production codebase would split it into reusable modules: one for networking (VPC, subnets), one for compute (ECS, ALB), one for data (RDS, S3).
-
 - **CI/CD staging gate** — the pipeline currently deploys directly to production on every push to `main`. A real deployment pipeline would push to a staging environment first, run smoke tests, and require a manual approval step before promoting to production.
 
