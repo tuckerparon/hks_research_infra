@@ -27,6 +27,15 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/api/sensors", response_model=list[str])
+def list_sensors():
+    """Return distinct sensor IDs sorted alphabetically — used to populate the dashboard dropdown."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT sensor_id FROM sensor_readings ORDER BY sensor_id")
+            return [row[0] for row in cur.fetchall()]
+
+
 @app.get("/api/anomalies", response_model=list[Anomaly])
 def list_anomalies(
     sensor_id: Optional[str] = None,

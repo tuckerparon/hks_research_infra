@@ -138,7 +138,9 @@
   <div class="filters">
     <label>
       Sensor ID
-      <input type="text" id="sensorId" placeholder="e.g. sensor_001" />
+      <select id="sensorId">
+        <option value="">All sensors</option>
+      </select>
     </label>
     <label>
       Start (UTC)
@@ -149,17 +151,21 @@
       <input type="datetime-local" id="end" />
     </label>
     <label>
+      Min Confidence %
+      <input type="number" id="minConf" value="0" min="0" max="100" step="0.01" style="width:110px" />
+    </label>
+    <label>
       Limit
       <input type="number" id="limit" value="100" min="1" max="1000" style="width:90px" />
     </label>
     <button onclick="fetchAnomalies()">Search</button>
+    <div style="display:flex; align-items:center; gap:.75rem; margin-left:.5rem; padding-left:1rem; border-left:1px solid #ddd;">
+      <button onclick="fetchAnomalies()" style="background:#6b7280;">Refresh</button>
+      <span style="font-size:.82rem; color:#888; white-space:nowrap;">Pipeline updates every 1 min</span>
+    </div>
   </div>
 
-  <div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem;">
-    <div id="status"></div>
-    <span style="font-size:.85rem; color:#888;">Pipeline adds new data every 1 minute.</span>
-    <button onclick="fetchAnomalies()" style="padding:.3rem .9rem; font-size:.85rem;">Refresh</button>
-  </div>
+  <div id="status" style="margin-bottom:1rem; font-size:.9rem; color:#555; min-height:1.2em;"></div>
 
   <div id="empty">No anomalies found for the selected filters.</div>
 
@@ -170,19 +176,35 @@
         <th>Sensor</th>
         <th>Type</th>
         <th>Confidence</th>
-        <th>Detected At (UTC)</th>
+        <th>Detected At</th>
       </tr>
     </thead>
     <tbody id="tbody"></tbody>
   </table>
 
   <script>
+    async function populateSensors() {
+      try {
+        const res = await fetch('/api/sensors');
+        if (!res.ok) return;
+        const sensors = await res.json();
+        const select = document.getElementById('sensorId');
+        sensors.forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s;
+          opt.textContent = s;
+          select.appendChild(opt);
+        });
+      } catch (_) {}
+    }
+
     async function fetchAnomalies() {
       const params = new URLSearchParams();
 
-      const sensorId = document.getElementById('sensorId').value.trim();
+      const sensorId = document.getElementById('sensorId').value;
       const start    = document.getElementById('start').value;
       const end      = document.getElementById('end').value;
+      const minConf  = parseFloat(document.getElementById('minConf').value) || 0;
       const limit    = document.getElementById('limit').value;
 
       if (sensorId) params.append('sensor_id', sensorId);
@@ -198,8 +220,9 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 
-        status.textContent = `${data.length} anomal${data.length === 1 ? 'y' : 'ies'} returned`;
-        render(data);
+        const filtered = minConf > 0 ? data.filter(r => r.confidence_pct >= minConf) : data;
+        status.textContent = `${filtered.length} anomal${filtered.length === 1 ? 'y' : 'ies'} returned`;
+        render(filtered);
       } catch (err) {
         status.textContent = `Error: ${err.message}`;
       }
@@ -227,14 +250,14 @@
           <td>${r.id}</td>
           <td>${r.sensor_id}</td>
           <td><span class="badge">${r.anomaly_type}</span></td>
-          <td>${r.confidence_pct.toFixed(1)}%</td>
+          <td>${r.confidence_pct.toFixed(2)}%</td>
           <td>${new Date(r.detected_at).toUTCString()}</td>
         `;
         tbody.appendChild(tr);
       });
     }
 
-    // Load on page open with defaults
+    populateSensors();
     fetchAnomalies();
   </script>
 
