@@ -158,7 +158,8 @@ The pipeline stops automatically after `MAX_RUNTIME_MINUTES` (default: 30) to pr
 
 ### Video Walkthrough
 
-*[Link to be added]*
+[![](https://youtu.be/kzF4W2ec7W4)]
+
 
 ---
 
